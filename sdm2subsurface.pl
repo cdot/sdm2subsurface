@@ -15,8 +15,8 @@ use Time::Piece;
 
 # Columns seen in SDM output. Fields with a lowercase first character have
 # an analog in Subsurface. Fields with upper case first character are
-# added as extradata. To exclude a field from the extradata, prepend the field
-# name with a - sign
+# added at the end of the notes. To exclude a field from the notes, prepend the field
+# name with a - sign. Only fields that have a value are added to the notes.
 my @COLUMNS = (
 	"index", "number","date","time","?1","?2","duration",
 	"S.I in seconds","maxdepth","avedepth","computer","-Diver Number",
@@ -27,7 +27,7 @@ my @COLUMNS = (
 	"startp","endp","sac","?","Dive Type","Light Conditions",
 	"Camera Used","-Custom 4","-Custom 5","weight","mix","?","0=Air,2=Nitrox" );
 
-# Mapping computer numbers to model names
+# Mapping computer numbers to model names. Only the computers supported by SDM 1.6.
 my %COMPUTERS = (
 	3 => "Stinger",
 	4 => "Mosquito",
@@ -104,33 +104,35 @@ my $divedata = readCSV("$csv.CSV");
 my @diveorder;
 my $divesites = {};
 foreach my $row (@$divedata) {
+	# Map the CSV row array to a perl hash that maps column name to data value
 	my $dive = {};
 	for (my $i = 0; $i < scalar(@$row); $i++) {
 		$dive->{$COLUMNS[$i]} = $row->[$i];
 	}
 
-	# Fix up date format
+	# Fix up date format - assumes dates have been recorded as dd/mm/yyyy
 	my $t = Time::Piece->strptime($dive->{date}, "%d/%m/%Y");
 	$dive->{date} = $t->strftime("%Y-%0m-%0d");
 
 	# Extract location
+	# TODO: combine successive dives at the same Location into a single Subsurface trip?
 	my $loc = "$dive->{location}/$dive->{site}";
 	my $uuid = $divesites->{$loc};
 	$uuid = new_uuid($loc) if (!defined $uuid);
 	$divesites->{$loc} = $uuid;
 	$dive->{divesiteid} = $uuid;
 
-	# Fix up nitrox mix
+	# Fix up nitrox mix - SDM means "Air" when the mix is 0
 	$dive->{mix} = 21 if $dive->{mix} == 0;
 
-	# Map computer number to model name
+	# Map computer number to model name. This won't match the model name in Subsurface, but that doesn't really matter.
 	$dive->{computer} = $COMPUTERS{$dive->{computer}} if $dive->{computer};
 
 	$dives->{$dive->{index}} = $dive;
 	push(@diveorder, $dive->{index});
 }
 
-# Load the $NOT notes file
+# Load the $NOT notes file. The notes are added to the dive they relate to in the order they are seen.
 my @notes; # array of strings
 my $notedata = readCSV("$csv\$NOT.CSV");
 foreach my $row (@$notedata) {
@@ -139,7 +141,7 @@ foreach my $row (@$notedata) {
 		if (exists $dives->{$index});
 }
 
-# Load the $DGE gear file
+# Load the $DGE gear file. Gear is currently added to extradata, but could be added to the end of notes
 my @dive_gear; # array of lists
 my $dgdata = readCSV("$csv\$DGE.CSV");
 foreach my $row (@$dgdata) {
@@ -148,7 +150,7 @@ foreach my $row (@$dgdata) {
 		if (exists $dives->{$index});
 }
 
-# Load the $PRO profiles file
+# Load the $PRO profiles file.
 my $prodata = readCSV("$csv\$PRO.CSV");
 foreach my $row (@$prodata) {
 	my $index = shift @$row;
@@ -214,15 +216,16 @@ foreach my $index (@diveorder) {
 	# Assumes temps are celcius
 	print FO "<divetemperature air='$dive->{airtemp} C' water='$dive->{watertemp} C'/>\n";
 	print FO "<divecomputer model='Suunto $dive->{computer}'>\n";
-	
-	# Assumes depths are metres
+
+	# Process the profile. Assumes depths are metres. I can only work out what the first two columns
+	# are - time, and depth. Subsurface also supports "temp".
 	print FO "<depth max='$dive->{maxdepth} m' mean='$dive->{avedepth} m' />\n";
 	foreach my $sample (@{$dive->{profile}}) {
 		print FO "<sample time='$sample->[0] min' depth='$sample->[1] m' />\n";
 	}
 	print FO "</divecomputer>\n";
 
-	# Process dive equipment
+	# Process dive equipment. Currently added as extradata, could alternatively be embedded in Notes.
 	if ($dive->{equipment}) {
 		print FO "<extradata key='Equipment' value='";
 		my $v = join("; ", @{$dive->{equipment}});
