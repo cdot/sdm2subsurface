@@ -3,7 +3,7 @@ Perl script for processing CSV files output from very old versions of Suunto Div
 
 First export your logbook from SDM using "File->Export->ANSI in CSV Format", saving to 'logbook.CSV'
 
-On the command-line:
+'cd' to the directory where the exported files are, and on the command-line:
 
 perl sdm2subsurface.pl logbook
 
